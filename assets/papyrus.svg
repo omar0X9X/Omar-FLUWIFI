@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920">
+<defs><linearGradient id="bg" x2="0" y2="1"><stop stop-color="#171009"/><stop offset="1" stop-color="#050403"/></linearGradient><filter id="paper"><feTurbulence type="fractalNoise" baseFrequency=".025" numOctaves="4" result="n"/><feBlend in="SourceGraphic" in2="n" mode="multiply"/></filter></defs>
+<rect width="1080" height="1920" fill="url(#bg)"/>
+<g transform="translate(145 330) rotate(-3 400 600)" filter="url(#paper)">
+<path d="M30 30Q100-15 160 20Q240-10 320 22Q420-5 520 18Q610-2 740 35L715 1190Q620 1160 550 1184Q470 1165 390 1190Q300 1162 205 1187Q120 1165 45 1192Z" fill="#d0ab6a"/>
+<g stroke="#4e3020" stroke-width="8" opacity=".85">
+<path d="M120 150v760M190 120v900M270 155v730M355 120v930M445 150v760M540 130v900M625 170v730"/>
+</g>
+<g fill="#3c2519" opacity=".92">
+<path d="M95 180h35v70h-35zM92 280h44v24H92zM92 330h31v70H92zM170 170h30v42h-30zM170 240h46v28h-46zM170 330h37v80h-37zM250 190h42v26h-42zM250 260h28v75h-28zM340 190h30v75h-30zM340 300h50v24h-50zM430 210h45v28h-45zM430 280h30v75h-30zM525 175h32v90h-32zM525 310h46v25h-46zM610 205h35v70h-35zM610 320h42v30h-42z"/>
+</g>
+</g>
+<text x="90" y="205" font-family="Arial" font-size="34" fill="#efd9a1" letter-spacing="9">MERER LOGBOOK</text>
+<text x="770" y="1515" font-family="Tahoma,Arial" font-size="72" font-weight="bold" fill="#e2bf7b">ميرر</text>
+</svg>

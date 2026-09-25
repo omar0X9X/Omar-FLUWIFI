@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920">
+<defs><linearGradient id="sky" x2="0" y2="1"><stop stop-color="#17120b"/><stop offset=".55" stop-color="#8e6232"/><stop offset="1" stop-color="#26180d"/></linearGradient><filter id="g"><feTurbulence baseFrequency=".7" numOctaves="3" result="n"/><feBlend in="SourceGraphic" in2="n" mode="soft-light"/></filter></defs>
+<rect width="1080" height="1920" fill="url(#sky)"/>
+<circle cx="820" cy="330" r="150" fill="#e8bd70" opacity=".35"/>
+<path d="M0 880 L180 730 360 780 520 620 730 730 1080 600 1080 1920 0 1920Z" fill="#9c6d38"/>
+<path d="M0 1000 L210 830 430 900 580 760 820 860 1080 760 1080 1920 0 1920Z" fill="#6c4727"/>
+<g filter="url(#g)" fill="#c59758" stroke="#60401f" stroke-width="8">
+<rect x="120" y="960" width="330" height="180" rx="8"/><rect x="470" y="950" width="380" height="205" rx="8"/>
+<rect x="170" y="1170" width="410" height="200" rx="8"/><rect x="605" y="1190" width="310" height="175" rx="8"/>
+<rect x="80" y="1395" width="360" height="200" rx="8"/><rect x="470" y="1400" width="470" height="225" rx="8"/>
+</g>
+<g stroke="#ead49d" stroke-width="9" opacity=".8"><path d="M220 970l80-130"/><path d="M690 970l70-150"/><path d="M390 1190l75-160"/></g>
+<g fill="#16100b"><circle cx="245" cy="835" r="22"/><path d="M242 858l-22 105h50z"/><circle cx="740" cy="806" r="22"/><path d="M738 830l-28 112h58z"/></g>
+<text x="90" y="210" font-family="Arial" font-size="34" fill="#f0d79e" letter-spacing="8">GIZA QUARRY</text>
+</svg>

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920">
+<defs><linearGradient id="wall" x2="0" y2="1"><stop stop-color="#9d7a4c"/><stop offset="1" stop-color="#24180e"/></linearGradient><radialGradient id="light"><stop stop-color="#f0d69c" stop-opacity=".9"/><stop offset="1" stop-color="#e3bd6c" stop-opacity="0"/></radialGradient></defs>
+<rect width="1080" height="1920" fill="#090705"/>
+<path d="M0 0L390 620L390 1530L0 1920Z" fill="url(#wall)"/><path d="M1080 0L690 620L690 1530L1080 1920Z" fill="url(#wall)"/>
+<path d="M0 0L390 620H690L1080 0Z" fill="#5d452b"/><path d="M0 1920L390 1530H690L1080 1920Z" fill="#1d130b"/>
+<rect x="390" y="620" width="300" height="910" fill="#080604"/>
+<ellipse cx="540" cy="1180" rx="270" ry="360" fill="url(#light)" opacity=".35"/>
+<g stroke="#d2ae6f" stroke-width="3" opacity=".35"><path d="M0 280L390 760M1080 280L690 760"/><path d="M0 600L390 920M1080 600L690 920"/><path d="M0 1020L390 1160M1080 1020L690 1160"/></g>
+<text x="90" y="205" font-family="Arial" font-size="34" fill="#efd9a1" letter-spacing="9">NORTH CORRIDOR • 2023</text>
+</svg>

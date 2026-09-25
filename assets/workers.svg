@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920">
+<defs><linearGradient id="b" x2="0" y2="1"><stop stop-color="#18100a"/><stop offset=".52" stop-color="#8e5d31"/><stop offset="1" stop-color="#140d08"/></linearGradient></defs>
+<rect width="1080" height="1920" fill="url(#b)"/><circle cx="840" cy="280" r="130" fill="#e8c67f" opacity=".35"/>
+<g transform="translate(70 660)" stroke="#3b2617" stroke-width="8">
+<g fill="#a87946"><rect x="20" y="120" width="240" height="190"/><rect x="280" y="70" width="280" height="240"/><rect x="590" y="120" width="320" height="190"/></g>
+<g fill="#c08c52"><rect x="80" y="360" width="300" height="210"/><rect x="410" y="370" width="220" height="200"/><rect x="660" y="350" width="250" height="220"/></g>
+<g fill="#1b120c"><rect x="80" y="215" width="65" height="95"/><rect x="390" y="190" width="80" height="120"/><rect x="725" y="220" width="75" height="90"/><rect x="175" y="460" width="75" height="110"/><rect x="735" y="455" width="70" height="115"/></g>
+</g>
+<g transform="translate(105 1320)" fill="#15100c">
+<circle cx="80" cy="0" r="25"/><path d="M58 28h45l20 145H35z"/><circle cx="280" cy="10" r="25"/><path d="M255 38h50l22 140h-92z"/><circle cx="500" cy="-10" r="25"/><path d="M475 20h50l30 155h-105z"/><circle cx="740" cy="8" r="25"/><path d="M715 36h50l22 142h-92z"/>
+</g>
+<g fill="none" stroke="#e0bf7d" stroke-width="4" opacity=".72"><circle cx="205" cy="560" r="85"/><path d="M180 560h50M205 535v50"/><rect x="720" y="520" width="155" height="100" rx="8"/></g>
+<text x="90" y="205" font-family="Arial" font-size="34" fill="#efd9a1" letter-spacing="8">WORKERS' CITY</text>
+</svg>
