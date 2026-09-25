@@ -1,5 +1,7 @@
 import unittest
 
+from obt_scorpion.lab import _hostapd_config
+from obt_scorpion.portal_server import PAGE
 from obt_scorpion.rogue_watch import analyze_snapshot
 from obt_scorpion.security_score import posture
 
@@ -50,6 +52,27 @@ class RogueWatchTests(unittest.TestCase):
             }
         ]
         self.assertEqual(analyze_snapshot(nets, {"OBT_LAB"}), [])
+
+
+class LabConfigTests(unittest.TestCase):
+    def test_wpa2_original_configuration(self):
+        conf = _hostapd_config("wlan0", "OBT_LAB", 1, "ScorpionLab2026!")
+        self.assertIn("wpa=2", conf)
+        self.assertIn("wpa_key_mgmt=WPA-PSK", conf)
+        self.assertIn("rsn_pairwise=CCMP", conf)
+
+    def test_twin_configuration_is_open_for_training_portal(self):
+        conf = _hostapd_config("wlan1", "OBT_LAB", 6, None)
+        self.assertIn("wpa=0", conf)
+
+
+class PortalSafetyTests(unittest.TestCase):
+    def test_portal_explicitly_warns_against_real_passwords(self):
+        self.assertIn("Do not enter a real password", PAGE)
+
+    def test_portal_uses_training_token_not_password_field(self):
+        self.assertIn('name="token"', PAGE)
+        self.assertNotIn('name="password"', PAGE)
 
 
 if __name__ == "__main__":
