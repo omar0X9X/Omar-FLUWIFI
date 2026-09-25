@@ -11,6 +11,7 @@ from pathlib import Path
 
 LAB_DIR = Path("/tmp/obt-scorpion-range")
 STATE = LAB_DIR / "state.json"
+HANDSHAKE = LAB_DIR / "handshake.pcap"
 
 
 def _run(cmd: list[str], timeout: int = 12, env: dict | None = None) -> tuple[int, str]:
@@ -99,7 +100,7 @@ def _kill_pidfile(name: str) -> bool:
 
 def stop_lab_services() -> dict:
     stopped = []
-    for name in ("portal.pid", "dnsmasq.pid", "ap1.pid", "ap2.pid"):
+    for name in ("client.pid", "portal.pid", "dnsmasq.pid", "ap1.pid", "ap2.pid"):
         if _kill_pidfile(name):
             stopped.append(name)
     for iface in hwsim_interfaces():
@@ -117,6 +118,7 @@ def lab_status() -> dict:
         "hwsim_interfaces": hwsim_interfaces(),
         "iw_status": code,
         "state": _read_state(),
+        "handshake_capture": str(HANDSHAKE) if HANDSHAKE.exists() else None,
         "portal_events": str(LAB_DIR / "portal_events.jsonl"),
     }
 
@@ -135,26 +137,44 @@ def create_virtual_radios(radios: int = 4) -> dict:
     return status
 
 
-def _hostapd_config(iface: str, ssid: str, channel: int) -> str:
-    return f"""interface={iface}
+def _hostapd_config(
+    iface: str,
+    ssid: str,
+    channel: int,
+    psk: str | None = None,
+) -> str:
+    base = f"""interface={iface}
 driver=nl80211
 ssid={ssid}
 hw_mode=g
 channel={channel}
 auth_algs=1
-wpa=0
 ignore_broadcast_ssid=0
 logger_stdout=-1
 logger_stdout_level=2
 """
+    if not psk:
+        return base + "wpa=0\n"
+
+    return base + f"""wpa=2
+wpa_passphrase={psk}
+wpa_key_mgmt=WPA-PSK
+rsn_pairwise=CCMP
+ieee80211w=1
+"""
 
 
-def start_twin_demo(ssid: str = "OBT_LAB") -> dict:
-    """Run same-SSID APs only on software radios; no physical RF is possible."""
+def start_twin_demo(
+    ssid: str = "OBT_LAB",
+    lab_psk: str = "ScorpionLab2026!",
+) -> dict:
+    """Run WPA2 original + open same-SSID twin on software radios only."""
     if os.geteuid() != 0:
         return {"ok": False, "error": "root privileges required"}
     if not shutil.which("hostapd"):
         return {"ok": False, "error": "hostapd not installed"}
+    if len(lab_psk) < 8 or len(lab_psk) > 63:
+        return {"ok": False, "error": "lab PSK must be 8-63 characters"}
 
     ifaces = hwsim_interfaces()
     if len(ifaces) < 4:
@@ -175,8 +195,8 @@ def start_twin_demo(ssid: str = "OBT_LAB") -> dict:
     LAB_DIR.mkdir(parents=True, exist_ok=True)
     cfg1 = LAB_DIR / "ap1.conf"
     cfg2 = LAB_DIR / "ap2.conf"
-    cfg1.write_text(_hostapd_config(original, ssid, 1))
-    cfg2.write_text(_hostapd_config(twin, ssid, 6))
+    cfg1.write_text(_hostapd_config(original, ssid, 1, lab_psk))
+    cfg2.write_text(_hostapd_config(twin, ssid, 6, None))
 
     for iface in (original, twin, observer, client):
         _run(["ip", "link", "set", iface, "down"])
@@ -194,8 +214,19 @@ def start_twin_demo(ssid: str = "OBT_LAB") -> dict:
     state = {
         "mode": "software-radio-only",
         "ssid": ssid,
-        "original": {"interface": original, "channel": 1, "bssid": _mac(original)},
-        "twin": {"interface": twin, "channel": 6, "bssid": _mac(twin)},
+        "lab_psk": lab_psk,
+        "original": {
+            "interface": original,
+            "channel": 1,
+            "bssid": _mac(original),
+            "security": "WPA2-PSK",
+        },
+        "twin": {
+            "interface": twin,
+            "channel": 6,
+            "bssid": _mac(twin),
+            "security": "OPEN-CAPTIVE-LAB",
+        },
         "observer": {"interface": observer, "bssid": _mac(observer)},
         "client": {"interface": client, "bssid": _mac(client)},
     }
@@ -262,7 +293,7 @@ def start_captive_stack(lab_token: str = "OBT-LAB-2026") -> dict:
         "dhcp_range": "10.77.0.20-10.77.0.100",
         "dns_redirect": "all names -> 10.77.0.1",
         "portal": "http://10.77.0.1/",
-        "training_token_hint": "configured at launch; submissions are never stored",
+        "training_token_hint": "submissions are validated but never stored",
     }
     _write_state(state)
     return {"ok": True, **state["captive"]}
@@ -278,6 +309,7 @@ def lab_deauth_burst(count: int = 6) -> dict:
     safe, error = _assert_hwsim(observer)
     if not safe:
         return {"ok": False, "error": error}
+
     allowed_bssids = {
         state.get("original", {}).get("bssid"),
         state.get("twin", {}).get("bssid"),
@@ -292,6 +324,7 @@ def lab_deauth_burst(count: int = 6) -> dict:
 
     _run(["ip", "link", "set", observer, "down"])
     _run(["iw", "dev", observer, "set", "type", "monitor"])
+    _run(["iw", "dev", observer, "set", "channel", "1"])
     _run(["ip", "link", "set", observer, "up"])
 
     broadcast = "ff:ff:ff:ff:ff:ff"
@@ -303,15 +336,169 @@ def lab_deauth_burst(count: int = 6) -> dict:
         addr3=ap_bssid,
     ) / Dot11Deauth(reason=7)
 
-    sendp(frame, iface=observer, count=max(1, min(int(count), 20)), inter=0.08, verbose=False)
+    frames = max(1, min(int(count), 20))
+    sendp(frame, iface=observer, count=frames, inter=0.08, verbose=False)
 
     return {
         "ok": True,
         "mode": "mac80211_hwsim-only",
         "interface": observer,
         "target_bssid": ap_bssid,
-        "frames_sent": max(1, min(int(count), 20)),
-        "note": "No physical radio can be selected by this function.",
+        "frames_sent": frames,
+        "note": "Physical adapters are rejected before frame transmission.",
+    }
+
+
+def capture_lab_handshake(duration: int = 10) -> dict:
+    """Generate and capture a WPA2 handshake only inside the hwsim arena."""
+    if os.geteuid() != 0:
+        return {"ok": False, "error": "root privileges required"}
+    if not shutil.which("tshark") or not shutil.which("wpa_supplicant"):
+        return {"ok": False, "error": "tshark and wpa_supplicant are required"}
+
+    state = _read_state()
+    observer = state.get("observer", {}).get("interface")
+    client = state.get("client", {}).get("interface")
+    original = state.get("original", {}).get("interface")
+    ssid = state.get("ssid")
+    psk = state.get("lab_psk")
+    bssid = state.get("original", {}).get("bssid")
+
+    safe, error = _assert_hwsim(observer, client, original)
+    if not safe:
+        return {"ok": False, "error": error}
+    if not all((ssid, psk, bssid)):
+        return {"ok": False, "error": "start the Twin Arena first"}
+
+    _kill_pidfile("client.pid")
+    try:
+        HANDSHAKE.unlink()
+    except FileNotFoundError:
+        pass
+
+    _run(["ip", "link", "set", observer, "down"])
+    _run(["iw", "dev", observer, "set", "type", "monitor"])
+    _run(["iw", "dev", observer, "set", "channel", "1"])
+    _run(["ip", "link", "set", observer, "up"])
+
+    _run(["ip", "link", "set", client, "down"])
+    _run(["iw", "dev", client, "set", "type", "managed"])
+    _run(["ip", "link", "set", client, "up"])
+
+    client_conf = LAB_DIR / "client.conf"
+    client_conf.write_text(
+        'ctrl_interface=/run/wpa_supplicant\n'
+        'network={\n'
+        f'    ssid="{ssid}"\n'
+        f'    bssid={bssid}\n'
+        '    key_mgmt=WPA-PSK\n'
+        f'    psk="{psk}"\n'
+        '}\n'
+    )
+
+    cap_log = (LAB_DIR / "tshark.log").open("a")
+    capture = subprocess.Popen(
+        [
+            "tshark",
+            "-i",
+            observer,
+            "-a",
+            f"duration:{max(5, min(int(duration), 30))}",
+            "-w",
+            str(HANDSHAKE),
+        ],
+        stdout=cap_log,
+        stderr=cap_log,
+        start_new_session=True,
+    )
+
+    time.sleep(1.0)
+    code, supplicant_out = _run([
+        "wpa_supplicant",
+        "-B",
+        "-P",
+        str(LAB_DIR / "client.pid"),
+        "-i",
+        client,
+        "-c",
+        str(client_conf),
+    ])
+
+    try:
+        capture.wait(timeout=max(8, min(int(duration), 30)) + 5)
+    except subprocess.TimeoutExpired:
+        capture.terminate()
+        capture.wait(timeout=3)
+
+    status_code, status_out = _run(["wpa_cli", "-i", client, "status"])
+
+    if not HANDSHAKE.exists():
+        return {
+            "ok": False,
+            "error": "capture was not created",
+            "wpa_supplicant": supplicant_out,
+        }
+
+    from .pcap_analyzer import inspect_pcap
+
+    analysis = inspect_pcap(HANDSHAKE)
+    state["handshake_capture"] = str(HANDSHAKE)
+    _write_state(state)
+
+    return {
+        "ok": code == 0,
+        "capture": str(HANDSHAKE),
+        "client_status": status_out if status_code == 0 else "unavailable",
+        "analysis": analysis,
+    }
+
+
+def validate_lab_psk(candidate: str) -> dict:
+    """Validate one candidate only against the hwsim-generated lab capture."""
+    state = _read_state()
+    original = state.get("original", {}).get("interface")
+    bssid = state.get("original", {}).get("bssid")
+    safe, error = _assert_hwsim(original)
+    if not safe:
+        return {"ok": False, "error": error}
+    if not HANDSHAKE.exists() or state.get("handshake_capture") != str(HANDSHAKE):
+        return {"ok": False, "error": "no SCORPION-generated lab handshake is registered"}
+    if not bssid:
+        return {"ok": False, "error": "lab BSSID missing"}
+    if not shutil.which("aircrack-ng"):
+        return {"ok": False, "error": "aircrack-ng not installed"}
+
+    candidate = candidate[:63]
+    if len(candidate) < 8:
+        return {"ok": False, "error": "WPA2 candidate must be at least 8 characters"}
+
+    wordlist = LAB_DIR / ".one_candidate"
+    wordlist.write_text(candidate + "\n")
+    try:
+        code, out = _run([
+            "aircrack-ng",
+            "-q",
+            "-a",
+            "2",
+            "-b",
+            bssid,
+            "-w",
+            str(wordlist),
+            str(HANDSHAKE),
+        ], timeout=25)
+    finally:
+        try:
+            wordlist.unlink()
+        except FileNotFoundError:
+            pass
+
+    valid = "KEY FOUND!" in out.upper()
+    return {
+        "ok": code in (0, 1),
+        "candidate_valid": valid,
+        "capture": str(HANDSHAKE),
+        "target": bssid,
+        "mode": "single-candidate hwsim-lab validation",
     }
 
 
@@ -348,21 +535,25 @@ Hard safety boundary: mac80211_hwsim software radios only.
 No physical RF adapter can be used by active lab actions.
 
 [1] Create 4 virtual radios
-[2] Start same-SSID Twin Arena
+[2] Start WPA2 original + same-SSID Twin Arena
 [3] Start DHCP + DNS redirect + Captive Portal
 [4] Send lab-only deauth burst
-[5] Show lab status
-[6] Show portal training events
-[7] Stop lab services
-[8] Destroy virtual radios
+[5] Capture WPA2 4-way handshake in the lab
+[6] Validate one PSK candidate against SCORPION lab capture
+[7] Show lab status
+[8] Show portal training events
+[9] Stop lab services
+[10] Destroy virtual radios
 [0] Back
 """)
     choice = input("lab> ").strip()
+
     if choice == "1":
         result = create_virtual_radios(4)
     elif choice == "2":
         ssid = input("Lab SSID [OBT_LAB]: ").strip() or "OBT_LAB"
-        result = start_twin_demo(ssid)
+        psk = input("Synthetic lab PSK [ScorpionLab2026!]: ").strip() or "ScorpionLab2026!"
+        result = start_twin_demo(ssid, psk)
     elif choice == "3":
         token = input("Training token [OBT-LAB-2026]: ").strip() or "OBT-LAB-2026"
         result = start_captive_stack(token)
@@ -374,12 +565,22 @@ No physical RF adapter can be used by active lab actions.
             count = 6
         result = lab_deauth_burst(count)
     elif choice == "5":
-        result = lab_status()
+        raw = input("Capture seconds [10]: ").strip() or "10"
+        try:
+            duration = int(raw)
+        except ValueError:
+            duration = 10
+        result = capture_lab_handshake(duration)
     elif choice == "6":
-        result = {"ok": True, "events": portal_events()}
+        candidate = input("Synthetic lab PSK candidate: ").strip()
+        result = validate_lab_psk(candidate)
     elif choice == "7":
-        result = stop_lab_services()
+        result = lab_status()
     elif choice == "8":
+        result = {"ok": True, "events": portal_events()}
+    elif choice == "9":
+        result = stop_lab_services()
+    elif choice == "10":
         result = destroy_virtual_radios()
     else:
         result = {"ok": True, "action": "back"}
