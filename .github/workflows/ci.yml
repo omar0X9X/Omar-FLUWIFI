@@ -13,11 +13,21 @@ jobs:
         with:
           python-version: "3.12"
       - name: Compile Python
-        run: python -m compileall -q scorpion.py obt_scorpion
+        run: python -m compileall -q scorpion.py obt_scorpion tests
       - name: Import smoke test
         run: |
           python - <<'PY'
           import obt_scorpion
-          from obt_scorpion import system_check, wifi_scan, rogue_watch, pcap_analyzer, lab, report
+          from obt_scorpion import (
+              system_check,
+              wifi_scan,
+              security_score,
+              rogue_watch,
+              pcap_analyzer,
+              lab,
+              report,
+          )
           print(obt_scorpion.__version__)
           PY
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
