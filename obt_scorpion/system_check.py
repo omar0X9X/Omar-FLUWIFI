@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 import platform
 import shutil
@@ -47,14 +48,34 @@ def interfaces() -> list[dict]:
 
 
 def preflight(verbose: bool = False) -> dict:
-    commands = ["iw", "ip", "tshark", "aircrack-ng", "hostapd", "wpa_supplicant"]
+    commands = [
+        "iw",
+        "ip",
+        "tshark",
+        "aircrack-ng",
+        "hostapd",
+        "wpa_supplicant",
+        "wpa_cli",
+        "dnsmasq",
+        "modprobe",
+    ]
     result = {
         "kali": is_kali(),
         "root": os.geteuid() == 0,
         "kernel": platform.release(),
         "commands": {name: bool(shutil.which(name)) for name in commands},
+        "python_modules": {
+            "scapy": importlib.util.find_spec("scapy") is not None,
+        },
         "interfaces": interfaces(),
     }
+    result["ready"] = (
+        result["kali"]
+        and result["root"]
+        and all(result["commands"].values())
+        and all(result["python_modules"].values())
+    )
+
     if verbose:
         print("\nPRE-FLIGHT SECURITY CHECK")
         print("─────────────────────────")
@@ -62,6 +83,9 @@ def preflight(verbose: bool = False) -> dict:
         print(f"Root privileges     {'✓' if result['root'] else '✕'}")
         for name, ok in result["commands"].items():
             print(f"{name:<20}{'✓' if ok else '✕'}")
+        for name, ok in result["python_modules"].items():
+            print(f"python:{name:<13}{'✓' if ok else '✕'}")
+        print(f"\nRange readiness     {'READY' if result['ready'] else 'CHECK FAILED ITEMS'}")
         print("\nWireless interfaces:")
         if result["interfaces"]:
             for i in result["interfaces"]:
