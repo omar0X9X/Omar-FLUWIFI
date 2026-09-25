@@ -15,9 +15,10 @@ echo "[🦂] OBT SCORPION — OMAR BEN TALEB"
 echo "[*] Updating package metadata..."
 apt-get update
 
-echo "[*] Installing wireless analysis dependencies..."
+echo "[*] Installing wireless analysis + isolated lab dependencies..."
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
-  python3 iw iproute2 tshark aircrack-ng hostapd wpasupplicant kmod
+  python3 python3-scapy iw iproute2 tshark aircrack-ng \
+  hostapd wpasupplicant dnsmasq kmod
 
 chmod +x scorpion.py install.sh
 
