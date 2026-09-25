@@ -24,6 +24,7 @@ jobs:
               security_score,
               rogue_watch,
               pcap_analyzer,
+              portal_server,
               lab,
               report,
           )
