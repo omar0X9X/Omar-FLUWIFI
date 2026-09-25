@@ -1,0 +1,25 @@
+name: Validate Pyramid Story
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check JavaScript syntax
+        run: node --check app.js
+      - name: Check project structure
+        run: |
+          test -f index.html
+          test -f styles.css
+          test -f app.js
+          test -f assets/quarry.svg
+          test -f assets/boat.svg
+          test -f assets/papyrus.svg
+          test -f assets/workers.svg
+          test -f assets/ramp.svg
+          test -f assets/muon.svg
+          test -f assets/corridor.svg
+          test -f assets/evidence.svg
