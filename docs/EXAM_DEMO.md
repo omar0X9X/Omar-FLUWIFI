@@ -2,63 +2,106 @@
 
 ## 1. Launch
 
-```bash
-sudo scorpion
-```
+Run:
 
-Show the startup banner and run **System / adapter pre-flight** first.
+    sudo scorpion
 
-## 2. RF reconnaissance
+Start with **System / adapter pre-flight** and show that Kali, root privileges,
+TShark, Aircrack-ng, hostapd, wpa_supplicant, dnsmasq and Scapy are ready.
 
-Choose the lab Wi-Fi interface and run **Wireless reconnaissance**.
+## 2. Passive RF reconnaissance
 
-Explain the visible fields:
+Use **Wireless reconnaissance** on the instructor-authorized physical adapter.
 
-- SSID / BSSID
-- RSSI signal
-- channel
-- WPA generation
-- PMF visibility
-- WPS hint
-- heuristic posture score
+Explain SSID/BSSID, RSSI, channel, WPA generation, PMF, WPS and posture score.
+Passive discovery is separate from the active range.
 
-## 3. Evil-Twin detection arena
+## 3. Build the isolated active range
 
-Open **Virtual Wi-Fi training range** and:
+Open **Virtual Wi-Fi training range**:
 
-1. Create 3 virtual radios.
-2. Start the same-SSID twin arena.
-3. Use the observer software radio to scan.
-4. Run **Rogue / Evil-Twin watch**.
+1. Create 4 virtual radios.
+2. Start the Twin Arena:
+   - WPA2 original AP on channel 1
+   - open same-SSID twin AP on channel 6
+   - observer radio
+   - virtual client radio
 
-The arena creates two software-only access points with the same SSID on
-different channels. The detector should flag the duplicate identity and
-fingerprint mismatch.
+Show the state output and BSSIDs.
 
-The lab engine contains a hard safety check: it refuses to use a radio unless
-its kernel driver is `mac80211_hwsim`.
+## 4. Start the captive stack
 
-## 4. PCAP / handshake demonstration
+Select **Start DHCP + DNS redirect + Captive Portal**.
 
-Choose **PCAP + WPA handshake inspector** and provide an instructor-approved
-capture. Show the EAPOL frame timeline and whether a full 4-message sequence
-is visible.
+Explain:
 
-## 5. Evidence
+- twin gateway: 10.77.0.1
+- DHCP leases: 10.77.0.20-10.77.0.100
+- wildcard DNS points to 10.77.0.1
+- portal runs on port 80
+- portal accepts only a synthetic training token
+- the submitted token is never stored
 
-Run **Generate evidence report**.
+## 5. Management-frame resilience demo
 
-Show both output formats:
+Choose the lab-only deauth action.
 
-- Markdown: human-readable
-- JSON: machine-readable
+Before frame transmission, the engine verifies that the transmitter is
+mac80211_hwsim and the AP BSSID belongs to the SCORPION-generated lab state.
 
-## 6. Closing explanation
+## 6. Generate a real WPA2 handshake
 
-Use the model:
+Choose **Capture WPA2 4-way handshake in the lab**.
 
-```text
-DISCOVER → PROFILE → OBSERVE → DETECT → EXPLAIN → HARDEN → RETEST → REPORT
-```
+SCORPION switches the observer to monitor mode, tunes it to channel 1, starts
+TShark, connects the virtual WPA2 client through wpa_supplicant, records EAPOL,
+and reports M1/M2/M3/M4 visibility.
 
-This demonstrates both wireless protocol knowledge and engineering discipline.
+Capture path:
+
+    /tmp/obt-scorpion-range/handshake.pcap
+
+## 7. Candidate validation
+
+Choose **Validate one PSK candidate against SCORPION lab capture**.
+
+This accepts one candidate only and refuses arbitrary external captures.
+Demonstrate one wrong synthetic candidate and the configured lab PSK.
+
+## 8. Rogue / Twin detection
+
+Demonstrate the same-SSID mismatch:
+
+    SSID: same
+    BSSID: different
+    channel: different
+    security: WPA2 vs OPEN
+
+Explain why this produces a high-suspicion event.
+
+## 9. Evidence
+
+Generate Markdown and JSON reports.
+
+## 10. Closing model
+
+    DISCOVER
+       ↓
+    PROFILE
+       ↓
+    EMULATE
+       ↓
+    OBSERVE
+       ↓
+    DETECT
+       ↓
+    EXPLAIN
+       ↓
+    HARDEN
+       ↓
+    RETEST
+       ↓
+    REPORT
+
+The active training chain is repeatable while being technically unable to
+select a physical Wi-Fi radio.
