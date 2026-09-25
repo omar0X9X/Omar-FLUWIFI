@@ -1,0 +1,9 @@
+{
+  "owner": "OMAR BEN TALEB",
+  "project": "OBT SCORPION",
+  "authorized_ssids": ["OBT_LAB"],
+  "authorized_bssids": [],
+  "report_dir": "reports",
+  "sound": true,
+  "cinematic": true
+}
